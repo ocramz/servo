@@ -1,0 +1,22 @@
+# The timed pages of tests/blink_perf_tests/perf_tests/layout (autoresearch, plan 22a), and how many
+# times each runs its test body in a round: counts that give each page about 2 s on the root, so
+# that none decides the time alone. Calibrated on Servo's nightly of 2026-11-18 (arm64, 4 CPUs);
+# each process's "AR0 TIME" line, in the owner's logs, says what its loop took.
+#
+# Left out, of the directory's flexbox pages:
+# - flexbox-nested-rows-and-columns-auto-overflow: it forces layout by body.offsetTop, which Servo
+#   answers with 0 without laying out;
+# - flexbox-hittest: it times elementsFromPoint, not layout;
+# - flexbox-deeply-nested-with-ortho-flow: an iframe in a vertical writing mode, which Servo has off;
+# - flexbox-row-stretch-height-definite: its setup, a thousand `innerHTML +=`, takes longer than its
+#   loop and leaves 780 MB of garbage, three times any other page's memory, none of it layout's.
+flexbox-row-nowrap 4000
+flexbox-row-wrap 4000
+flexbox-column-nowrap 11000
+flexbox-column-wrap 11000
+flexbox-deeply-nested-column-flow 70000
+flexbox-input 30000
+flexbox-lots-of-data 700
+flexbox-row-stretch-height-indefinite 2500
+flexbox-with-stretch-layout 60
+flexbox_with_list_item 250

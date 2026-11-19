@@ -6,3 +6,45 @@ support/openharmony/**/*.ets linguist-language=ts
 # Denote all files that are truly binary and should not be modified.
 *.png binary
 *.jpg binary
+
+# autoresearch (plan 22a of pi-autoresearch-serverless): what the root's export leaves out, and so
+# what the job image, the agents' trees and the build never see. What stays is what
+# `cargo build -p servoshell` reads (the workspace's members, components/, ports/, resources/, .cargo/),
+# the harness (bench/, eval/), and of tests/ the flexbox pages of Blink's layout perf tests, the web
+# platform tests' css-flexbox and the Ahem font. A directory's own pattern unsets what its parent's
+# set, level by level: git archive never looks inside a directory it leaves out.
+/.config export-ignore
+/.devcontainer export-ignore
+/.github export-ignore
+/.vscode export-ignore
+/docs export-ignore
+/etc export-ignore
+/python export-ignore
+/support export-ignore
+/third_party export-ignore
+/mach export-ignore
+/mach.bat export-ignore
+/mach.ps1 export-ignore
+/uv.lock export-ignore
+/pyproject.toml export-ignore
+/.python-version export-ignore
+/shell.nix export-ignore
+/tests/dromaeo export-ignore
+/tests/html export-ignore
+/tests/jquery export-ignore
+/tests/power export-ignore
+/tests/blink_perf_tests/* export-ignore
+/tests/blink_perf_tests/perf_tests -export-ignore
+/tests/blink_perf_tests/perf_tests/* export-ignore
+/tests/blink_perf_tests/perf_tests/layout -export-ignore
+/tests/blink_perf_tests/perf_tests/layout/* export-ignore
+/tests/blink_perf_tests/perf_tests/layout/flexbox* -export-ignore
+/tests/wpt/* export-ignore
+/tests/wpt/tests -export-ignore
+/tests/wpt/tests/* export-ignore
+/tests/wpt/tests/css -export-ignore
+/tests/wpt/tests/css/* export-ignore
+/tests/wpt/tests/css/css-flexbox -export-ignore
+/tests/wpt/tests/fonts -export-ignore
+/tests/wpt/tests/fonts/* export-ignore
+/tests/wpt/tests/fonts/Ahem.ttf -export-ignore

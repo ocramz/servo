@@ -1,0 +1,54 @@
+#!/bin/sh
+# fetch (autoresearch, plan 22a): what the build and the runs need, as the job image is built: the
+# only step with network access, run once, as root in /work (design §9.2 of pi-autoresearch-serverless).
+# - Debian's packages: what Servo's own list asks for (python/servo/platform/linux_packages/apt)
+#   without GStreamer, since servoshell builds here with its dummy media stack; Mesa's software GL,
+#   which --headless renders with; fonts; and time(1), for bench/run.
+# - No uv: script_bindings' build script would run its code generator through `uv run`, which
+#   resolves a Python environment from the network. Without it, it runs python3, which is enough.
+# - The toolchain rust-toolchain.toml pins, with its components: rustup's proxies would otherwise
+#   look for them in a build, which has no network.
+# - The crates Cargo.lock pins.
+# - SpiderMonkey, prebuilt: mozjs_sys' build script downloads it with curl, from the URL base
+#   MOZJS_ARCHIVE gives. Here it is pinned by its SHA-256 and kept under /opt/servo-deps, at the
+#   path the script asks for, and `build` gives MOZJS_ARCHIVE=file:///opt/servo-deps: curl reads a
+#   file, and no build needs the network.
+# - Ahem, the web platform tests' font, as a system font: flexbox-with-stretch-layout and many
+#   corpus pages name it, and from file:// they can't load it as a web font.
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+  build-essential ca-certificates clang libclang-dev llvm-dev cmake curl git gperf m4 pkg-config python3 \
+  libdbus-1-dev libfreetype6-dev libfontconfig-dev libharfbuzz-dev liblzma-dev libudev-dev libunwind-dev \
+  libgl1-mesa-dri libgles2-mesa-dev libegl1-mesa-dev libegl1 libvulkan1 \
+  libx11-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxmu-dev libxmu6 xorg-dev \
+  libxkbcommon0 libxkbcommon-x11-0 \
+  fontconfig fonts-dejavu-core fonts-liberation time
+rm -rf /var/lib/apt/lists/*
+
+if command -v uv > /dev/null; then
+  echo "fetch: uv is on the PATH, and script_bindings' build would use it" >&2
+  exit 1
+fi
+
+rustup toolchain install
+cargo --version
+cargo fetch --locked
+
+version=$(awk '$0 == "name = \"mozjs_sys\"" { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
+case "$version/$(uname -m)" in
+153.7.0-0/x86_64) target=x86_64-unknown-linux-gnu sha=86793a090ea050c458b497a80e4e81a48b7d282f02b8e3c5c31b13cff9378f82 ;;
+153.7.0-0/aarch64) target=aarch64-unknown-linux-gnu sha=aa0f382750893dec85b694239fd81ae494282ca79b47231996c9844e95a52cf4 ;;
+*) echo "fetch: no SpiderMonkey archive is pinned for mozjs_sys $version on $(uname -m)" >&2; exit 1 ;;
+esac
+dir=/opt/servo-deps/download/mozjs-sys-v$version
+archive=libmozjs-$target.tar.gz
+mkdir -p "$dir"
+curl -fsSL --retry 3 -o "$dir/$archive.part" "https://github.com/servo/mozjs/releases/download/mozjs-sys-v$version/$archive"
+echo "$sha  $dir/$archive.part" | sha256sum -c -
+mv "$dir/$archive.part" "$dir/$archive"
+chmod -R a+rX /opt/servo-deps
+
+install -D -m 0644 tests/wpt/tests/fonts/Ahem.ttf /usr/local/share/fonts/Ahem.ttf
+fc-cache -f -s

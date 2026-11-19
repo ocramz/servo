@@ -1,0 +1,48 @@
+#!/bin/sh
+# run BUILD INPUTS OUTPUTS (autoresearch, plan 22a): one round of one side, which the sandbox times
+# and whose largest process it weighs. bench/gen.py copies this file to $INPUTS/run, and `run` is
+# `sh $INPUTS/run $BUILD $INPUTS $OUTPUTS`.
+# - Each timed page of $INPUTS/pages.txt in a headless servoshell of its own, from file://: the page
+#   runs its test body a fixed number of times ($INPUTS/site/resources/runner.js), prints its digests
+#   and closes its window, which ends the process. Its stdout is $OUTPUTS/<page>.out.
+# - Then the corpus pass, a servoshell for each chunk of $INPUTS/corpus.txt, which loads the chunk's
+#   pages one after another by the user script $INPUTS/userscripts/<chunk>/gate.js. Its stdout is
+#   $OUTPUTS/corpus.<chunk>.out.
+# A page that doesn't print its last line fails the round. servoshell's own stderr stays on this
+# step's, for the owner, and after it a line from time(1) with the process's wall time and its peak
+# resident set: the round's memory is its hungriest process's, and that line says which it was. No display, no network: --headless renders in software, and every URL is a
+# file. A fresh config directory for each process, under the step's TMPDIR, so no page finds another's
+# storage.
+set -eu
+build=$1 inputs=$2 outputs=$3
+servo=$build/target/release/servoshell
+scratch=$(mktemp -d)
+n=0
+
+# shell OUT URL [servoshell options]: one servoshell, ended by its page, its stdout in OUT.
+shell() {
+  n=$((n + 1))
+  out=$1 url=$2
+  shift 2
+  timeout -k 5 150 /usr/bin/time -f "run: ${out##*/} %e s %M KiB" "$servo" --headless --hard-fail --window-size 1024x768 --device-pixel-ratio 1 \
+    --temporary-storage --config-dir "$scratch/config.$n" \
+    --pref dom_allow_scripts_to_close_windows --pref perf_thread_boost_enabled=false \
+    "$@" "$url" < /dev/null > "$out"
+}
+
+while read -r page runs; do
+  case $page in '' | '#'*) continue ;; esac
+  shell "$outputs/$page.out" "file://$inputs/site/layout/$page.html"
+  if ! grep -q "^AR1 END $page runs=$runs " "$outputs/$page.out"; then
+    echo "run: $page did not finish its $runs runs" >&2
+    exit 1
+  fi
+done < "$inputs/pages.txt"
+
+while read -r chunk pages first; do
+  shell "$outputs/corpus.$chunk.out" "file://$inputs/wpt/css/css-flexbox/$first" --userscripts "$inputs/userscripts/$chunk"
+  if ! grep -q "^AR1 END corpus.$chunk pages=$pages\$" "$outputs/corpus.$chunk.out"; then
+    echo "run: chunk $chunk of the corpus pass did not finish its $pages pages" >&2
+    exit 1
+  fi
+done < "$inputs/corpus.txt"

@@ -1,0 +1,197 @@
+# Servo's flexbox layout, searched for speed and memory by autoresearch (plan 22a of
+# pi-autoresearch-serverless): agents change the timed paths of components/layout so that the
+# flexbox pages of Blink's layout perf tests (tests/blink_perf_tests/perf_tests/layout) lay out
+# faster, in no more memory, with every layout result unchanged.
+#
+# A round is a fixed amount of work in headless servoshell, from file:// with no network: each page
+# of bench/pages.txt runs its test body a fixed number of times (bench/runner.js stands in for
+# Blink's runner.js, which measures runs per second by the page's own clock), then a pass over 150
+# pages of the web platform tests' css-flexbox that the attempt's seed draws, each changed and laid
+# out again (bench/gate.js). The sandbox measures the round, not the page: its wall time, and the
+# peak resident set of its hungriest process, which is flexbox_with_list_item's, of 20,000 elements.
+# The gate, eval/check.py, compares the digests of geometry the pages print, in app units, between the
+# baseline and the candidate: they must be the same, byte for byte.
+
+[agents]
+max_tokens = 3000000
+# A build check recompiles three release crates.
+max_minutes = 60
+build_checks_per_session = 3
+planner_instructions = """
+Goal: make Servo's flexbox layout faster, in no more memory, without changing any layout result.
+
+What is measured, with equal weight: the wall time of a fixed amount of work in headless servoshell, \
+and the peak resident memory of its hungriest process. The work: ten flexbox pages of \
+tests/blink_perf_tests/perf_tests/layout each run their test body a fixed number of times, every \
+PerfTestRunner.forceLayout() reading body.offsetHeight, which makes layout restyle, update the box \
+tree, lay out the fragment tree and rebuild the stacking context tree; nothing is painted inside \
+the loop. Then about 150 random pages of tests/wpt/tests/css/css-flexbox are loaded, changed and laid \
+out again. Only work repeated in those loops moves the time. The memory is that of the largest page, \
+flexbox_with_list_item, with 20,000 elements: what layout keeps for each box and fragment counts, and \
+so does a cache.
+
+The gate: every geometry the pages can observe (bounding and client rects, offset, client and scroll \
+sizes, used style values, hit tests) must be bit-identical to the root's, at random points inside the \
+loops and on the random pages, after each change made to them (sizes, display, flex properties, \
+text). A cache that returns a stale result after a style or DOM change fails it; so does a \
+difference of 1/60 px.
+
+Propose one focused, general idea per hypothesis, and say which loop it speeds up, what it costs or \
+saves in memory, and why the result stays identical. Good directions: work repeated on every \
+relayout that the damage does not require; the caches of layout results and intrinsic sizes and \
+their invalidation; repeated passes, allocation and cloning in flex item sizing and line building; \
+the cost of rebuilding fragments and the stacking context tree when little changed; the size of the \
+structures kept per box and per fragment. Read the code first: every relayout goes through \
+flexbox/layout.rs, layout_box_base.rs, formatting_contexts.rs, traversal.rs and \
+display_list/stacking_context.rs.
+
+Out of bounds: changing behaviour, even to fix a bug; anything keyed on these pages, their sizes, \
+ids or repetition counts; more threads or different parallelism (rayon use and its thresholds stay \
+as they are); unsafe code; printing; processes, files or sockets. Pure refactors and text-shaping \
+changes are not worth an experiment.
+
+Cost: an experiment recompiles three release crates and then measures, tens of minutes in all. \
+Prefer a change an implementer can finish in a few files, and build on what this node's lineage \
+already changed rather than starting another design.
+"""
+implementer_instructions = """
+Implement exactly the hypothesis, as a small patch to components/layout that keeps every layout \
+result bit-identical: geometry is compared in app units (1/60 px), so do not reorder or \
+re-associate floating-point arithmetic (flex factor distribution) or change rounding.
+
+Rules of this tree:
+- Only the allowlisted files of components/layout can change. The modules you cannot change (lib.rs, \
+table/, taffy/, flow/float.rs, replaced.rs, lists.rs, most of display_list/) use the types you edit: \
+keep every item they use source-compatible, and search for all users before changing a struct, a \
+signature or a derive (MallocSizeOf included).
+- No unsafe (the crate denies it; do not allow it), no new dependencies, no new threads, pools, \
+processes, files, sockets or environment reads, no println!, eprintln!, dbg! or logging, and no \
+global or thread-local state that outlives a layout unless the same damage that invalidates a result \
+invalidates it.
+- Leave rayon use and the parallelism thresholds as they are. The code must stay correct both when \
+layout runs in the pool and when it runs sequentially.
+- Nothing may depend on a page's content, element ids, sizes or the number of repetitions.
+- A cache must be keyed on everything its value depends on (containing block, constraint space, \
+style, children) and dropped when the box or its descendants are damaged: the gate changes pages \
+and lays them out again to catch stale entries. It must also be worth its memory, which counts as \
+much as time.
+- Results must not depend on hash iteration order, addresses or time.
+
+Working: the sources of stylo (style::…), taffy and app_units are not in the tree; learn their APIs \
+from how this crate already uses them. A build check recompiles servo-layout, servo and servoshell \
+in release mode and takes minutes: read the code and get the patch right first, run one check \
+before proposing, and keep at most one more for a fix. A failed gate fails the experiment with no \
+detail, so when in doubt keep the old behaviour exactly.
+"""
+
+# A narrow search (plan 22a, with the user): two children an expansion; an allowance that widens
+# with the square root of a node's subtree, so that its 4th expansion waits for a subtree of 5 nodes
+# and its 8th for one of 29, and still lets a node whose first expansion gave nothing be asked once
+# more; half UCB's exploration bonus; branches pruned once 1% of the combined sample behind the
+# incumbent, beyond their noise; lineages 16 deep, since gains compose along one.
+[search]
+children_per_expansion = 2
+widening_c = 3.0
+widening_alpha = 0.5
+ucb_c_sigma = 1.0
+prune_margin = 0.01
+max_depth = 16
+max_inflight_attempts = 8
+
+[limits]
+max_experiments = 100
+max_nodes = 140
+max_files = 12
+
+[metric]
+name = "flexbox_cost"
+
+# Each side's median wall time of a round, over its measured rounds.
+[[metric.objectives]]
+name      = "flexbox_ms"
+direction = "minimize"
+source    = "wall_ms"
+weight    = 1
+
+# Each side's median peak resident set of a round's largest process, in KiB.
+[[metric.objectives]]
+name      = "peak_rss_kib"
+direction = "minimize"
+source    = "max_rss_kib"
+weight    = 1
+
+[scope]
+# The timed paths of flexbox layout (plan 22a): the flex algorithm, the block and inline layout of
+# what flex items hold, the caches, the reflow driver and the box tree's construction, the fragment
+# tree, the stacking context tree that every forced layout rebuilds, and the queries.
+allow = [
+  "components/layout/flexbox/**",
+  "components/layout/fragment_tree/**",
+  "components/layout/flow/inline/**",
+  "components/layout/flow/mod.rs",
+  "components/layout/flow/root.rs",
+  "components/layout/flow/construct.rs",
+  "components/layout/flow/same_formatting_context_block.rs",
+  "components/layout/layout_impl.rs",
+  "components/layout/layout_root.rs",
+  "components/layout/layout_box_base.rs",
+  "components/layout/formatting_contexts.rs",
+  "components/layout/traversal.rs",
+  "components/layout/dom.rs",
+  "components/layout/dom_traversal.rs",
+  "components/layout/construct_modern.rs",
+  "components/layout/sizing.rs",
+  "components/layout/containing_block.rs",
+  "components/layout/geom.rs",
+  "components/layout/style_ext.rs",
+  "components/layout/context.rs",
+  "components/layout/positioned.rs",
+  "components/layout/query.rs",
+  "components/layout/display_list/stacking_context.rs",
+  "components/layout/display_list/clip.rs",
+]
+# Whatever decides how dependencies compile, the harness, the pages; and, inside the directories
+# allowed above, the script-specific text code no timed page reaches. The rest of components/layout
+# is no one's to change for being outside the allowlist: lib.rs (the crate's lints and its public
+# items), cell.rs, floats, tables, grid, replaced elements, lists, painting, accessibility.
+locked = [
+  "**/Cargo.toml", "Cargo.lock", "rust-toolchain*", "**/.cargo/**", "**/build.rs",
+  ".gitattributes", "bench/**", "eval/**", "tests/**",
+  "components/layout/flow/inline/mathml_italics.rs",
+  "components/layout/flow/inline/small_kana.rs",
+  "components/layout/flow/inline/full_width.rs",
+  "components/layout/flow/inline/text_transform.rs",
+]
+
+[image]
+# rust:1.99.1-bookworm, the toolchain rust-toolchain.toml pins, by its multi-arch digest.
+base  = "docker.io/library/rust@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c"
+fetch = "sh bench/fetch"
+# A private Cloud Build pool of 16 vCPUs and 64 GB: a clean build of Servo needs over 16 GB.
+build_pool = "e2-standard-16-64gb"
+
+[build]
+# The binary alone: its resources are baked in, and it links Rust code statically.
+outputs = ["target/release/servoshell"]
+
+[steps]
+# Offline, from what fetch downloaded; no GStreamer (default_base is servoshell's default features
+# without it). The image's build compiles everything, in up to an hour; a task's recompiles
+# servo-layout, servo and servoshell.
+build    = { cmd = "env MOZJS_ARCHIVE=file:///opt/servo-deps cargo build --release --frozen -p servoshell --no-default-features --features default_base", timeout_secs = 3600 }
+generate = { cmd = "python3 -I bench/gen.py $SEED $INPUTS", timeout_secs = 60 }
+run      = { cmd = "sh $INPUTS/run $BUILD $INPUTS $OUTPUTS", timeout_secs = 240 }
+check    = { cmd = "python3 -I eval/check.py $INPUTS $ROUNDS $BASELINE_OUT $CANDIDATE_OUT", timeout_secs = 120 }
+
+[paired]
+warmup = 1
+rounds = 5
+# A round takes tens of seconds.
+min_run_ms = 5000
+
+[resources]
+# Cloud Run's largest task: the build's own memory, and what it writes, which is memory too.
+cpu = 8
+memory_gib = 32
+# The build's hour, 12 rounds of at most 240 s, the check and the inputs.
+task_timeout_secs = 7200
