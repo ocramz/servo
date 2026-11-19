@@ -86,7 +86,7 @@ detail, so when in doubt keep the old behaviour exactly.
 
 # A narrow search (plan 22a, with the user): two children an expansion; an allowance that widens
 # with the square root of a node's subtree, so that its 4th expansion waits for a subtree of 5 nodes
-# and its 8th for one of 29, and still lets a node whose first expansion gave nothing be asked once
+# and its 8th for one of 22, and still lets a node whose first expansion gave nothing be asked once
 # more; half UCB's exploration bonus; branches pruned once 1% of the combined sample behind the
 # incumbent, beyond their noise; lineages 16 deep, since gains compose along one.
 [search]
