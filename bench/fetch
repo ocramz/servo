@@ -9,6 +9,10 @@
 # - The toolchain rust-toolchain.toml pins, with its components: rustup's proxies would otherwise
 #   look for them in a build, which has no network.
 # - The crates Cargo.lock pins.
+# - The crates that build scripts resolving their own package ask for: mozjs' glue crates run
+#   cbindgen::generate("."), so `cargo metadata` on their own Cargo.toml, by their own Cargo.lock,
+#   which pins crates Servo's doesn't (icu 2.4, cbindgen's tempfile…). Fetched here, they and their
+#   index entries are in CARGO_HOME, where the build, which has no network, finds them.
 # - SpiderMonkey, prebuilt: mozjs_sys' build script downloads it with curl, from the URL base
 #   MOZJS_ARCHIVE gives. Here it is pinned by its SHA-256 and kept under /opt/servo-deps, at the
 #   path the script asks for, and `build` gives MOZJS_ARCHIVE=file:///opt/servo-deps: curl reads a
@@ -35,6 +39,10 @@ fi
 rustup toolchain install
 cargo --version
 cargo fetch --locked
+for script in $(grep -l -E 'cbindgen::generate|\.with_crate\(' "${CARGO_HOME:?}"/registry/src/*/*/build.rs); do
+  echo "fetch: the crates ${script%/build.rs} resolves"
+  cargo fetch --locked --manifest-path "${script%/build.rs}/Cargo.toml"
+done
 
 version=$(awk '$0 == "name = \"mozjs_sys\"" { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
 case "$version/$(uname -m)" in
