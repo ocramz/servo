@@ -18,9 +18,9 @@ max_tokens = 3000000
 max_minutes = 60
 build_checks_per_session = 3
 planner_instructions = """
-Goal: make Servo's flexbox layout faster, in no more memory, without changing any layout result.
+Goal: make Servo's flexbox layout faster, without changing any layout result.
 
-What is measured, with equal weight: the wall time of a fixed amount of work in headless servoshell, \
+What is measured : the wall time of a fixed amount of work in headless servoshell, \
 and the peak resident memory of its hungriest process. The work: ten flexbox pages of \
 tests/blink_perf_tests/perf_tests/layout each run their test body a fixed number of times, every \
 PerfTestRunner.forceLayout() reading body.offsetHeight, which makes layout restyle, update the box \
@@ -37,22 +37,24 @@ text). A cache that returns a stale result after a style or DOM change fails it;
 difference of 1/60 px.
 
 Propose one focused, general idea per hypothesis, and say which loop it speeds up, what it costs or \
-saves in memory, and why the result stays identical. Good directions: work repeated on every \
+saves in memory, and explain your reasoning succintly. Good directions: work repeated on every \
 relayout that the damage does not require; the caches of layout results and intrinsic sizes and \
 their invalidation; repeated passes, allocation and cloning in flex item sizing and line building; \
 the cost of rebuilding fragments and the stacking context tree when little changed; the size of the \
 structures kept per box and per fragment. Read the code first: every relayout goes through \
 flexbox/layout.rs, layout_box_base.rs, formatting_contexts.rs, traversal.rs and \
-display_list/stacking_context.rs.
+display_list/stacking_context.rs, all under components/layout/.
 
 Out of bounds: changing behaviour, even to fix a bug; anything keyed on these pages, their sizes, \
 ids or repetition counts; more threads or different parallelism (rayon use and its thresholds stay \
 as they are); unsafe code; printing; processes, files or sockets. Pure refactors and text-shaping \
 changes are not worth an experiment.
 
-Cost: an experiment recompiles three release crates and then measures, tens of minutes in all. \
-Prefer a change an implementer can finish in a few files, and build on what this node's lineage \
-already changed rather than starting another design.
+Cost: an experiment recompiles three release crates and then measures; the Costs section of your \
+first message says how long that takes.
+
+Prefer a change an implementer can finish in one or a few files. \
+Prefer to build on top of this node's lineage rather than undoing previous design choices.
 """
 implementer_instructions = """
 Implement exactly the hypothesis, as a small patch to components/layout that keeps every layout \
@@ -64,10 +66,12 @@ Rules of this tree:
 table/, taffy/, flow/float.rs, replaced.rs, lists.rs, most of display_list/) use the types you edit: \
 keep every item they use source-compatible, and search for all users before changing a struct, a \
 signature or a derive (MallocSizeOf included).
-- No unsafe (the crate denies it; do not allow it), no new dependencies, no new threads, pools, \
-processes, files, sockets or environment reads, no println!, eprintln!, dbg! or logging, and no \
-global or thread-local state that outlives a layout unless the same damage that invalidates a result \
-invalidates it.
+- Add no unsafe code, and no #[allow(unsafe_code)] or #[expect(unsafe_code)]: the unsafe that \
+traversal.rs, query.rs and layout_impl.rs already have stays as it is.
+- Add no dependencies, threads, pools, processes, files, sockets or environment reads, and no \
+println!, eprintln!, dbg! or logging calls.
+- Add no static or thread_local! that carries layout results from one layout to the next: a cache \
+lives on the box or fragment it describes, where damage already clears it.
 - Leave rayon use and the parallelism thresholds as they are. The code must stay correct both when \
 layout runs in the pool and when it runs sequentially.
 - Nothing may depend on a page's content, element ids, sizes or the number of repetitions.
@@ -79,7 +83,7 @@ much as time.
 
 Working: the sources of stylo (style::…), taffy and app_units are not in the tree; learn their APIs \
 from how this crate already uses them. A build check recompiles servo-layout, servo and servoshell \
-in release mode and takes minutes: read the code and get the patch right first, run one check \
+in release mode: read the code and get the patch right first, run one check \
 before proposing, and keep at most one more for a fix. A failed gate fails the experiment with no \
 detail, so when in doubt keep the old behaviour exactly.
 """
