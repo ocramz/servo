@@ -25,11 +25,17 @@ from pathlib import Path
 TREE = Path(__file__).resolve().parent.parent
 GATE = TREE / "bench" / "gate.js"
 
-# A page with one of these is left out unread: timers, animations, frames and plugins, navigation.
+# A page with one of these is left out unread: timers, animations, frames and plugins, navigation,
+# and SVG. Servo rasterizes SVG, inline or an image, off the main thread, and the load event doesn't
+# wait for it: until it is done the element has no content fragment, and an inline <svg> without a
+# viewBox then gets one of 300×150, which overflows its box and changes its ancestors' scroll sizes.
+# A page's lines would depend on that race, which three runs on a workstation miss and Cloud Run
+# loses now and then.
 SKIP = [
     "<iframe", "<frame", "<object", "<embed", "<video", "<audio", "<canvas", "http-equiv", "reftest-wait",
     "test-wait", "settimeout", "setinterval", "requestanimationframe", "animation", "transition", "@keyframes",
     "window.open", "location.", "document.write", "scrollto", "scrollintoview", "focus(",
+    "<svg", "image/svg+xml", ".svg",
 ]
 
 
