@@ -13,7 +13,11 @@
 # baseline and the candidate: they must be the same, byte for byte.
 
 [agents]
-max_tokens = 3000000
+# A planner reads thousands of lines of components/layout before it proposes: run 20261120-092829-26bb's
+# two planners both ended at the default cap of 40 turns, after 2.35M and 1.72M tokens, with nothing
+# proposed. The context grows with each turn, so tokens grow faster than turns.
+max_turns = 100
+max_tokens = 10000000
 # A build check recompiles three release crates.
 max_minutes = 60
 build_checks_per_session = 3
@@ -41,9 +45,7 @@ saves in memory, and explain your reasoning succintly. Good directions: work rep
 relayout that the damage does not require; the caches of layout results and intrinsic sizes and \
 their invalidation; repeated passes, allocation and cloning in flex item sizing and line building; \
 the cost of rebuilding fragments and the stacking context tree when little changed; the size of the \
-structures kept per box and per fragment. Read the code first: every relayout goes through \
-flexbox/layout.rs, layout_box_base.rs, formatting_contexts.rs, traversal.rs and \
-display_list/stacking_context.rs, all under components/layout/.
+structures kept per box and per fragment.
 
 Out of bounds: changing behaviour, even to fix a bug; anything keyed on these pages, their sizes, \
 ids or repetition counts; more threads or different parallelism (rayon use and its thresholds stay \
